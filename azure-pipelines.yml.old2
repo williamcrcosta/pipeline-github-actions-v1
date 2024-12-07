@@ -1,0 +1,81 @@
+name: 1.0
+pool:
+  vmImage: ubuntu-latest
+trigger:
+- main
+variables:
+- group: Azure-Credentials
+- group: Public-Keys
+
+stages:
+- stage: validate_plan
+  displayName: Validate & Plan
+  jobs:
+  - job: validate_plan
+    displayName: Validate & Plan
+    steps:
+    - script: |
+        terraform init
+        terraform validate
+        terraform plan -out plan.out
+      displayName: Terraform Validate & Plan
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        TF_VAR_azure_key_pub: $(TF_VAR_azure_key_pub)
+    - publish: $(Build.SourcesDirectory)/plan.out
+      artifact: plan
+      displayName: Publish Plan
+
+- stage: apply
+  displayName: Apply
+  jobs:
+  - job: approve_apply
+    pool: server
+    displayName: Approve Apply
+    steps:
+    - task: ManualValidation@0
+      timeoutInMinutes: 1440
+  - job: apply
+    displayName: Terraform Apply
+    dependsOn: approve_apply
+    steps:
+    - download: current
+      artifact: plan
+      displayName: Download Plan
+    - script: |
+        terraform init
+        terraform apply $(Pipeline.Workspace)/plan/plan.out
+      displayName: Terraform Apply
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        TF_VAR_azure_key_pub: $(TF_VAR_azure_key_pub)
+
+- stage: destroy
+  displayName: Destroy
+  jobs:
+  - job: approve_destroy
+    pool: server
+    displayName: Approve Destroy
+    steps:
+    - task: ManualValidation@0
+      timeoutInMinutes: 1440
+  - job: destroy
+    displayName: Terraform Destroy
+    dependsOn: approve_destroy
+    steps:
+    - script: |
+        terraform init
+        terraform destroy -auto-approve
+      displayName: Terraform Destroy
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        TF_VAR_azure_key_pub: $(TF_VAR_azure_key_pub)
